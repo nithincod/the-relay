@@ -1,0 +1,37 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	validate_request(validate_request)
+	understand_question(understand_question)
+	retrieve_papers(retrieve_papers)
+	evaluate_evidence(evaluate_evidence)
+	prepare_retrieval_retry(prepare_retrieval_retry)
+	generate_answer(generate_answer)
+	verify_answer(verify_answer)
+	regenerate_answer(regenerate_answer)
+	refuse_answer(refuse_answer)
+	finalize_response(finalize_response)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> validate_request;
+	evaluate_evidence -. &nbsp;generate&nbsp; .-> generate_answer;
+	evaluate_evidence -. &nbsp;retry&nbsp; .-> prepare_retrieval_retry;
+	evaluate_evidence -. &nbsp;refuse&nbsp; .-> refuse_answer;
+	generate_answer --> verify_answer;
+	prepare_retrieval_retry --> retrieve_papers;
+	regenerate_answer --> verify_answer;
+	retrieve_papers --> evaluate_evidence;
+	understand_question --> retrieve_papers;
+	validate_request -. &nbsp;stop&nbsp; .-> __end__;
+	validate_request -. &nbsp;continue&nbsp; .-> understand_question;
+	verify_answer -. &nbsp;finalize&nbsp; .-> finalize_response;
+	verify_answer -. &nbsp;refuse&nbsp; .-> refuse_answer;
+	verify_answer -. &nbsp;regenerate&nbsp; .-> regenerate_answer;
+	finalize_response --> __end__;
+	refuse_answer --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

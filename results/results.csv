@@ -1,0 +1,4 @@
+request_id,scenario,source,start_time,first_token_ms,total_ms,status,retries,tokens_in,tokens_out,retrieval_setting,answer_grade
+524d2136-b1ef-4b8c-bfd4-4efb975570ee,manual,real,2026-11-09T17:37:07.085610+00:00,27.536,27.536,error,0,0,0,reranked_500w_top4_rerank_yes,
+f43c9071-95cb-40a2-a773-f6bfe98a0e4e,manual,real,2026-11-09T17:40:59.713222+00:00,72927.645,72927.645,ok,1,13565,6447,reranked_500w_top4_rerank_yes,
+b6d33c42-9c7c-4846-ab8c-01a963ef533f,manual,real,2026-11-09T17:52:48.511693+00:00,25442.433,25442.433,ok,1,9551,1440,reranked_500w_top4_rerank_yes,

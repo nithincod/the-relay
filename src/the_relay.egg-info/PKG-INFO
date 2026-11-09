@@ -1,0 +1,105 @@
+Metadata-Version: 2.4
+Name: the-relay
+Version: 0.1.0
+Summary: A citation-grounded research assistant with a LangGraph workflow and load-testable model clients.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: langgraph<2.0.0,>=1.2.0
+Requires-Dist: groq>=0.30.0
+Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: pydantic-settings>=2.7.0
+Requires-Dist: PyMuPDF>=1.25.0
+Requires-Dist: rank-bm25>=0.2.2
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: uvicorn[standard]>=0.34.0
+Requires-Dist: httpx>=0.28.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.25.0; extra == "dev"
+Requires-Dist: ruff>=0.9.0; extra == "dev"
+
+# The Relay
+
+A citation-grounded research assistant built around LangGraph. The same workflow can call either Groq or a local deterministic stub while the retrieval and experiment infrastructure is being developed.
+
+## Current implementation status
+
+- [x] LangGraph StateGraph with explicit conditional routing
+- [x] Bounded retrieval retry (maximum two retrieval attempts)
+- [x] Answer verification and one regeneration attempt
+- [x] Groq async streaming adapter with first-token timing and provider usage capture
+- [x] Offline deterministic stub for workflow smoke tests
+- [x] Version-pinned PDF loading and BM25 retrieval
+- [x] Request-level CSV logging with the assignment's required columns
+- [ ] Download and validate the three exact arXiv PDFs
+- [ ] Dedicated FastAPI stand-in service with configurable latency, failures, quotas and chunked streaming
+- [ ] Admission control, bounded queue and deadline management
+- [ ] Load scenarios, 15+ question evaluation and report generation
+
+## Architecture
+
+- **LangGraph:** orchestration, state transitions, conditional edges and bounded loops.
+- **Python services:** retrieval, model-provider adapters, metrics, rate-limit handling and benchmarking.
+- **Groq adapter:** async streaming chat completions. `GROQ_API_KEY` is read from the environment.
+- **Stub adapter:** deterministic local responses for development. It is not the calibrated load simulator.
+- **Retriever:** PDF page extraction, overlapping word-window chunks and BM25 ranking. Every chunk retains paper ID, version and 1-based PDF page number.
+
+The graph intentionally does not stream an unverified draft to the user. Accordingly, `first_token_ms` in the current CSV is the user-visible release time after verification; `model_first_token_ms` is retained inside the graph result for the model's internal generation TTFT. We will keep these metrics distinct during benchmarking.
+
+## Setup
+
+Python 3.11 or newer is required.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate       # Windows: .venv\\Scripts\\activate
+python -m pip install --upgrade pip
+pip install -e .[dev]
+cp .env.example .env
+```
+
+Download the exact paper versions:
+
+```bash
+python scripts/download_papers.py
+```
+
+The download script uses the versioned arXiv PDF endpoints specified by the assignment. Check the printed file sizes and keep the three version suffixes unchanged.
+
+## Run an offline workflow smoke test
+
+The stub backend requires no API key:
+
+```bash
+python -m relay.main "What is the Transformer architecture?"
+```
+
+The first run will refuse if the PDFs have not been downloaded. Once the PDFs are in `papers/`, it will retrieve passages and exercise the graph. The stub is intentionally not treated as a real answer-quality model.
+
+## Run against Groq
+
+1. Create your own Groq account and API key.
+2. Put the key in `.env` as `GROQ_API_KEY=...`.
+3. Set `MODEL_BACKEND=groq`.
+4. Confirm the model is currently available to your account and set `GROQ_MODEL` accordingly.
+
+```bash
+python -m relay.main "What is the Transformer architecture?"
+```
+
+Never commit `.env` or include the API key in the submission.
+
+## Required CSV
+
+Each completed manual request appends one row to `results/results.csv`. The columns match the assignment exactly. `answer_grade` is left blank until the human quality-evaluation pass assigns one of:
+
+- `correct`
+- `wrong`
+- `refused_correctly`
+- `refused_wrongly`
+
+Do not treat blank grades as evaluated answers.
+
+## Notes on measurements
+
+Groq returns rate-limit information in HTTP headers; the adapter preserves response headers on normalized errors where exposed by the SDK. We will add explicit request/response header capture and the controlled simulator in the next phase. Groq's account-level limits vary by model and plan, so use the account dashboard and actual response headers rather than copying a generic limit into the report.

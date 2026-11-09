@@ -1,0 +1,1 @@
+The assignment asks for the real assistant conversation history or prompts if export is unavailable. Keep an unedited export or paste the prompts used here as work progresses. Do not fabricate a conversation transcript.
