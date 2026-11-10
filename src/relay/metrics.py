@@ -22,7 +22,11 @@ def append_result(path: Path, state: dict[str, Any], retrieval_setting: str = "d
         "first_token_ms": _format_num(state.get("first_token_ms")),
         "total_ms": _format_num(state.get("total_ms")),
         "status": state.get("status", "error"),
-        "retries": max(0, int(state.get("retrieval_attempts", 0)) - 1) + max(0, int(state.get("generation_attempts", 0)) - 1),
+        "retries": (
+            max(0, int(state.get("retrieval_attempts", 0)) - 1)
+            + max(0, int(state.get("generation_attempts", 0)) - 1)
+            + sum(int(call.get("sdk_retries", 0)) for call in state.get("model_calls", []))
+        ),
         "tokens_in": state.get("tokens_in", 0),
         "tokens_out": state.get("tokens_out", 0),
         "retrieval_setting": retrieval_setting,
@@ -30,7 +34,7 @@ def append_result(path: Path, state: dict[str, Any], retrieval_setting: str = "d
         "answer_grade": "",
     }
     with path.open("a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, lineterminator="\n")
         if write_header:
             writer.writeheader()
         writer.writerow(row)

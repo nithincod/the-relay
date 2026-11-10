@@ -102,3 +102,34 @@ def test_reranked_results_include_explainable_diagnostics():
     assert "rerank_score" in results[0]
     assert "query_overlap" in results[0]
     assert "expanded_query_overlap" in results[0]
+
+
+def test_hyphenated_and_unhyphenated_sublayers_are_compatible():
+    assert "sublayers" in tokenize("sub-layers")
+    assert "sublayers" in tokenize("sublayers")
+
+
+def test_idf_weighted_coverage_rejects_unrelated_topic():
+    retriever = make_retriever()
+    passage = (
+        "The Transformer encoder has two sub-layers: "
+        "multi-head self-attention and a position-wise feed-forward network."
+    )
+
+    supported_query = (
+        "What are the two sublayers in a Transformer encoder layer?"
+    )
+    unrelated_query = (
+        "What effect does quantum computing have on agricultural yields "
+        "in Andhra Pradesh?"
+    )
+
+    supported = retriever.weighted_query_coverage(
+        supported_query, passage
+    )
+    unrelated = retriever.weighted_query_coverage(
+        unrelated_query, passage
+    )
+
+    assert supported >= 0.35
+    assert unrelated < 0.35

@@ -73,7 +73,7 @@ class RelayWorkflow:
     async def _call_model(
         self, purpose: str, messages: list[dict[str, str]]
     ) -> tuple[ModelResponse, dict[str, Any]]:
-        response = await self.model.complete(messages)
+        response = await self.model.complete(messages, purpose=purpose)
         metric = {
             "purpose": purpose,
             "provider": response.provider,
@@ -82,6 +82,7 @@ class RelayWorkflow:
             "first_token_ms": response.first_token_ms,
             "tokens_in": response.tokens_in,
             "tokens_out": response.tokens_out,
+            "sdk_retries": response.sdk_retries,
         }
         return response, metric
 
@@ -134,35 +135,39 @@ class RelayWorkflow:
 
     async def evaluate_evidence(self, state: RelayState) -> dict[str, Any]:
         chunks = state.get("retrieved_chunks", [])
-        best_score = max((float(c.get("score", 0.0)) for c in chunks), default=0.0)
         query_text = state.get("retrieval_query", state.get("question", ""))
-        query_terms = set(tokenize(query_text)) - STOP_WORDS
-        best_overlap = max(
+
+        best_score = max(
+            (float(c.get("score", 0.0)) for c in chunks),
+            default=0.0,
+        )
+        best_coverage = max(
             (
-                len(query_terms.intersection(tokenize(str(c.get("text", "")))))
-                / max(1, len(query_terms))
+                self.retriever.weighted_query_coverage(
+                    query_text, str(c.get("text", ""))
+                )
                 for c in chunks
             ),
             default=0.0,
         )
-        best_expanded_overlap = max(
-            (float(c.get("expanded_query_overlap", 0.0)) for c in chunks),
+        best_affinity = max(
+            (float(c.get("paper_affinity", 0.0)) for c in chunks),
             default=0.0,
         )
-        best_affinity = max((float(c.get("paper_affinity", 0.0)) for c in chunks), default=0.0)
 
-        # A positive BM25 score alone is not proof that evidence answers the question.
-        # Require direct lexical coverage, or expanded coverage plus a relevant paper hint.
-        sufficient = bool(chunks) and (
-            best_overlap >= 0.20
-            or (best_expanded_overlap >= 0.16 and best_affinity >= 0.50)
-        )
+        # A passage must cover enough specific query concepts. Generic
+        # lexical matches and paper affinity alone are not sufficient.
+        coverage_threshold = 0.35
+        sufficient = bool(chunks) and best_coverage >= coverage_threshold
+
         reason = (
-            f"Retrieved {len(chunks)} passage(s); best BM25 score={best_score:.4f}; "
-            f"direct query overlap={best_overlap:.1%}; "
-            f"expanded overlap={best_expanded_overlap:.1%}; "
+            f"Retrieved {len(chunks)} passage(s); "
+            f"best BM25 score={best_score:.4f}; "
+            f"IDF-weighted query coverage={best_coverage:.1%} "
+            f"(threshold={coverage_threshold:.0%}); "
             f"paper affinity={best_affinity:.2f}."
-            if chunks else "No passages were retrieved from the indexed library."
+            if chunks
+            else "No passages were retrieved from the indexed library."
         )
         return {"evidence_sufficient": sufficient, "evidence_reason": reason}
 
@@ -183,7 +188,7 @@ class RelayWorkflow:
                 "content": (
                     "You are The Relay, a research-paper assistant. Answer ONLY from the supplied passages. "
                     "Do not use outside knowledge. Every substantive factual claim must cite one or more supplied "
-                    "chunk IDs using exactly [[chunk_id]]. If the passages do not establish an answer, say that "
+                    "chunk IDs using exactly [[<chunk_id>]]. Each passage is labelled [CHUNK_ID:<id>]. Copy ONLY the ID value from the label and cite it as [[<id>]]. Example: [CHUNK_ID:1706.03762-v7-p006-c01] becomes [[1706.03762-v7-p006-c01]]. Never include the CHUNK_ID: prefix, modify IDs, or invent citations. If the passages do not establish an answer, say that "
                     "the supplied papers do not provide enough information. Never invent page numbers or citations."
                 ),
             },
@@ -276,7 +281,7 @@ class RelayWorkflow:
                 "role": "system",
                 "content": (
                     "Revise the answer using ONLY supplied passages. Fix the verifier's concern. "
-                    "Every factual claim must cite supplied chunk IDs as [[chunk_id]]. If evidence is insufficient, say so."
+                    "Every factual claim must cite exact supplied chunk IDs. Each passage is labelled [CHUNK_ID:<id>]. Copy ONLY the ID value and cite it as [[<id>]]. For example, [CHUNK_ID:1706.03762-v7-p006-c01] becomes [[1706.03762-v7-p006-c01]]. Never include the CHUNK_ID: prefix, modify IDs, or invent citations. If evidence is insufficient, say so."
                 ),
             },
             {

@@ -14,6 +14,7 @@ class ModelResponse:
     response_headers: dict[str, str] = field(default_factory=dict)
     provider: str = "unknown"
     model: str = "unknown"
+    sdk_retries: int = 0
 
 
 class ModelCallError(RuntimeError):
@@ -37,5 +38,7 @@ class ModelClient(Protocol):
     provider_name: str
     model_name: str
 
-    async def complete(self, messages: list[dict[str, str]]) -> ModelResponse:
+    async def complete(
+        self, messages: list[dict[str, str]], purpose: str = "completion"
+    ) -> ModelResponse:
         """Generate one completion and report timing/usage metadata."""

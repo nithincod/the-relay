@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     groq_model: str = "openai/gpt-oss-20b"
     groq_timeout_seconds: float = 30.0
+    groq_observations_jsonl: str = "results/groq_provider_observations.jsonl"
+
+    standin_base_url: str = "http://127.0.0.1:8090"
+    standin_model: str = "relay-standin-v1"
+    standin_timeout_seconds: float = 35.0
+    standin_request_scenario: str = "normal"
 
     retrieval_chunk_words: int = 500
     retrieval_overlap_words: int = 60
@@ -30,6 +36,11 @@ class Settings(BaseSettings):
 
     results_csv: str = "results/results.csv"
     scenario: str = "manual"
+
+    @property
+    def groq_observations_path(self) -> Path:
+        p = Path(self.groq_observations_jsonl)
+        return p if p.is_absolute() else ROOT_DIR / p
 
     @property
     def papers_dir(self) -> Path:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -57,7 +58,9 @@ QUERY_EXPANSIONS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     )),
     (("chunking",), (
         "hierarchical sequence modeling", "H Net", "subword tokenization",
-        "dynamic segmentation", "sequence compression",
+        "dynamic segmentation", "sequence compression", "chunk boundaries",
+        "boundary probabilities", "routing module", "downsampler",
+        "smoothing module",
     )),
     (("hierarchical",), (
         "dynamic chunking", "H Net", "subword tokenization", "sequence abstraction",
@@ -107,7 +110,18 @@ PAPER_TOPIC_HINTS: dict[str, tuple[tuple[str, float], ...]] = {
 
 
 def tokenize(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    """Tokenize text while making common hyphenated forms searchable.
+
+    For example, both 'sub-layers' and 'sublayers' produce the token
+    'sublayers'. The component tokens are retained for multiword matching.
+    """
+    result: list[str] = []
+    for term in re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", text.lower()):
+        parts = term.split("-")
+        result.extend(parts)
+        if len(parts) > 1:
+            result.append("".join(parts))
+    return result
 
 
 def expand_query(query: str) -> str:
@@ -220,6 +234,43 @@ class PaperRetriever:
     @property
     def document_count(self) -> int:
         return len({chunk.paper_id for chunk in self.chunks})
+
+    def weighted_query_coverage(self, query: str, passage: str) -> float:
+        """IDF-weighted fraction of meaningful query terms present in a passage.
+
+        Rare query terms carry more weight than generic terms. Terms absent
+        from the indexed corpus remain in the denominator, making unsupported
+        topics harder to accept as answerable evidence.
+        """
+        stop_words = {
+            "a", "an", "and", "are", "as", "at", "be", "by", "can", "could",
+            "did", "do", "does", "for", "from", "how", "i", "in", "is", "it",
+            "of", "on", "or", "that", "the", "their", "them", "there",
+            "these", "this", "to", "was", "what", "when", "where", "which",
+            "who", "why", "with", "would", "according", "have", "has", "had",
+            "paper", "papers", "about", "say",
+        }
+        terms = set(tokenize(query)) - stop_words
+        if not terms:
+            return 0.0
+
+        passage_terms = set(tokenize(passage))
+        corpus = getattr(self, "_token_sets", [])
+        document_count = max(1, len(corpus))
+
+        total_weight = 0.0
+        matched_weight = 0.0
+
+        for term in terms:
+            df = sum(1 for document in corpus if term in document)
+            idf = math.log1p(
+                (document_count - df + 0.5) / (df + 0.5)
+            )
+            total_weight += idf
+            if term in passage_terms:
+                matched_weight += idf
+
+        return matched_weight / total_weight if total_weight else 0.0
 
     @staticmethod
     def paper_affinity(query: str, paper_id: str) -> float:
@@ -359,6 +410,23 @@ class PaperRetriever:
                 selected.append(best_index)
                 remaining.remove(best_index)
             ranked = selected
+
+            # Reserve a slot for the strongest direct BM25 candidate that
+            # has meaningful query coverage, if reranking pushed it out.
+            if ranked:
+                for direct_index in sorted(
+                    candidates,
+                    key=lambda i: original_scores[i],
+                    reverse=True,
+                ):
+                    direct_coverage = self.weighted_query_coverage(
+                        query, self.chunks[direct_index].text
+                    )
+                    if direct_coverage < 0.35:
+                        continue
+                    if direct_index not in ranked:
+                        ranked[-1] = direct_index
+                    break
 
         results: list[dict[str, Any]] = []
         for index in ranked:

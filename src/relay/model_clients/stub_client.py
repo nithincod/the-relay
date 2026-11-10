@@ -13,7 +13,9 @@ class StubModelClient:
     provider_name = "stub"
     model_name = "local-deterministic-stub"
 
-    async def complete(self, messages: list[dict[str, str]]) -> ModelResponse:
+    async def complete(
+        self, messages: list[dict[str, str]], purpose: str = "completion"
+    ) -> ModelResponse:
         started = time.perf_counter()
         system = next((m["content"] for m in messages if m["role"] == "system"), "")
         user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
