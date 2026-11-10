@@ -24,6 +24,8 @@ class RelayState(TypedDict, total=False):
     generation_attempts: int
 
     draft_answer: str
+    draft_history: Annotated[list[dict[str, Any]], operator.add]
+    verification_history: Annotated[list[dict[str, Any]], operator.add]
     verification_result: str
     verification_feedback: str
     citations: list[str]

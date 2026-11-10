@@ -59,3 +59,33 @@ async def test_graph_generates_and_formats_a_citation():
     assert "arXiv:1706.03762v7" in result["final_answer"]
     assert result["generation_attempts"] == 1
     assert len(result["model_calls"]) == 3
+
+    # The initial draft and successful semantic verification are preserved.
+    assert len(result["draft_history"]) == 1
+    assert result["draft_history"][0]["kind"] == "initial"
+    assert result["draft_history"][0]["answer"] == result["draft_answer"]
+
+    assert len(result["verification_history"]) == 1
+    assert result["verification_history"][0]["check"] == "llm_semantic_verification"
+    assert result["verification_history"][0]["result"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_missing_citation_is_recorded_without_llm_verification():
+    retriever = OneChunkRetriever()
+    app = RelayWorkflow(StubModelClient(), retriever)
+
+    result = await app.verify_answer({
+        "question": "Explain the Transformer.",
+        "retrieved_chunks": retriever.search("Transformer"),
+        "draft_answer": "The Transformer uses attention mechanisms.",
+    })
+
+    assert result["verification_result"] == "fail"
+    assert len(result["verification_history"]) == 1
+
+    event = result["verification_history"][0]
+    assert event["check"] == "local_citation_precheck"
+    assert event["result"] == "fail"
+    assert event["used_ids"] == []
+    assert event["invalid_ids"] == []

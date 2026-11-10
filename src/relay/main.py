@@ -57,6 +57,18 @@ async def _run(question: str, debug_retrieval: bool = False, debug_workflow: boo
         print("retrieval_attempts:", result.get("retrieval_attempts"))
         print("draft_answer:")
         print(result.get("draft_answer", "<no draft recorded>"))
+
+        print("draft_history:")
+        for item in result.get("draft_history", []):
+            print(f"Attempt {item.get('attempt')} ({item.get('kind')}):")
+            print(item.get("answer", ""))
+
+        print("verification_history:")
+        for item in result.get("verification_history", []):
+            print(f"{item.get('check')}: {item.get('result')}")
+            print("Feedback:", item.get("feedback"))
+            print("Invalid IDs:", item.get("invalid_ids", []))
+
         print("model_calls:")
         for call in result.get("model_calls", []):
             print(call)

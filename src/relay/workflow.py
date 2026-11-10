@@ -193,9 +193,16 @@ class RelayWorkflow:
             },
         ]
         response, metric = await self._call_model("generate_answer", prompt)
+        draft = response.text.strip()
+        attempt = int(state.get("generation_attempts", 0)) + 1
         return {
-            "draft_answer": response.text.strip(),
-            "generation_attempts": int(state.get("generation_attempts", 0)) + 1,
+            "draft_answer": draft,
+            "draft_history": [{
+                "attempt": attempt,
+                "kind": "initial",
+                "answer": draft,
+            }],
+            "generation_attempts": attempt,
             "tokens_in": int(state.get("tokens_in", 0)) + int(response.tokens_in or 0),
             "tokens_out": int(state.get("tokens_out", 0)) + int(response.tokens_out or 0),
             "model_first_token_ms": response.first_token_ms,
@@ -207,9 +214,21 @@ class RelayWorkflow:
         used_ids = _citation_markers(state.get("draft_answer", ""))
         invalid_ids = [cid for cid in used_ids if cid not in allowed_ids]
         if not used_ids or invalid_ids:
+            feedback = (
+                "The draft is missing citations or contains citation IDs "
+                "not present in retrieved evidence."
+            )
+            event = {
+                "check": "local_citation_precheck",
+                "result": "fail",
+                "feedback": feedback,
+                "used_ids": used_ids,
+                "invalid_ids": invalid_ids,
+            }
             return {
                 "verification_result": "fail",
-                "verification_feedback": "The draft is missing citations or contains citation IDs not present in retrieved evidence.",
+                "verification_feedback": feedback,
+                "verification_history": [event],
             }
 
         evidence = "\n\n".join(
@@ -232,9 +251,16 @@ class RelayWorkflow:
         response, metric = await self._call_model("verify_answer", prompt)
         passed = response.text.strip().upper().startswith("PASS")
         feedback = response.text.strip()
+        event = {
+            "check": "llm_semantic_verification",
+            "result": "pass" if passed else "fail",
+            "feedback": feedback,
+            "used_ids": used_ids,
+        }
         return {
             "verification_result": "pass" if passed else "fail",
             "verification_feedback": feedback,
+            "verification_history": [event],
             "tokens_in": int(state.get("tokens_in", 0)) + int(response.tokens_in or 0),
             "tokens_out": int(state.get("tokens_out", 0)) + int(response.tokens_out or 0),
             "model_calls": [metric],
@@ -262,9 +288,16 @@ class RelayWorkflow:
             },
         ]
         response, metric = await self._call_model("regenerate_answer", prompt)
+        draft = response.text.strip()
+        attempt = int(state.get("generation_attempts", 0)) + 1
         return {
-            "draft_answer": response.text.strip(),
-            "generation_attempts": int(state.get("generation_attempts", 0)) + 1,
+            "draft_answer": draft,
+            "draft_history": [{
+                "attempt": attempt,
+                "kind": "regeneration",
+                "answer": draft,
+            }],
+            "generation_attempts": attempt,
             "tokens_in": int(state.get("tokens_in", 0)) + int(response.tokens_in or 0),
             "tokens_out": int(state.get("tokens_out", 0)) + int(response.tokens_out or 0),
             "model_first_token_ms": response.first_token_ms,
@@ -274,6 +307,7 @@ class RelayWorkflow:
     async def refuse_answer(self, state: RelayState) -> dict[str, Any]:
         reason = state.get("evidence_reason", "The available evidence did not pass verification.")
         if state.get("verification_result") == "fail":
+            reason = state.get("verification_feedback") or reason
             answer = "I can't provide a reliable answer from the retrieved passages because the draft did not pass evidence and citation verification."
         else:
             answer = "The specified papers do not provide enough evidence to answer this question reliably. I won't guess."
@@ -388,6 +422,8 @@ class RelayWorkflow:
             "tokens_in": 0,
             "tokens_out": 0,
             "model_calls": [],
+            "draft_history": [],
+            "verification_history": [],
             "node_timings_ms": {},
             "status": "running",
         }
